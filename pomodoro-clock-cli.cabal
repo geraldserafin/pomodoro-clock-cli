@@ -1,0 +1,21 @@
+cabal-version:      3.0
+name:               pomodoro-clock-cli
+version:            0.1.0.0
+license:            MIT
+license-file:       LICENSE
+author:             geraldserafin
+maintainer:         serafingerald@protonmail.com
+build-type:         Simple
+extra-doc-files:    CHANGELOG.md
+
+common warnings
+    ghc-options: -Wall
+
+executable pomodoro-clock-cli
+    import:           warnings
+    main-is:          Main.hs
+    -- other-modules: 
+    -- other-extensions:
+    build-depends:    base ^>=4.18.2.1
+    hs-source-dirs:   app
+    default-language: Haskell2010
