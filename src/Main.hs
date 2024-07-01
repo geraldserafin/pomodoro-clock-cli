@@ -7,5 +7,5 @@ main = do
 
   case cmd of
     StartDeamon     -> D.start
-    MessageDeamon m -> D.message m
+    MessageDeamon m -> D.sendMessage m
 

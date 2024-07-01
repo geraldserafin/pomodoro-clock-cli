@@ -1,6 +1,6 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Deamon (start, message) where
+module Deamon (start, sendMessage) where
 
 import qualified Data.ByteString.Char8 as BS
 import Commands
