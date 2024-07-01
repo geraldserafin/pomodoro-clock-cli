@@ -1,11 +1,11 @@
 import Commands
-import qualified Deamon as D
+import qualified Deamon
 
 main :: IO ()
 main = do
   cmd <- parseCommand
 
   case cmd of
-    StartDeamon     -> D.start
-    MessageDeamon m -> D.sendMessage m
+    StartDeamon     -> Deamon.start
+    MessageDeamon m -> Deamon.sendMessage m
 
