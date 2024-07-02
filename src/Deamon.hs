@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Deamon (start, sendMessage) where
 
@@ -6,7 +7,7 @@ import qualified Data.ByteString.Char8 as BS
 import Commands
 import Network.Socket
 import Network.Socket.ByteString
-import System.Posix hiding (Start)
+import System.Posix hiding (elapsedTime, Start)
 import Data.Aeson
 import Control.Exception
 import Control.Monad
@@ -14,13 +15,14 @@ import GHC.IO.Exception
 import Control.Concurrent
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
 import Control.Monad.Extra
+import Text.Printf
 
 type MessageHandler = Maybe Message -> IO String
 
 data State = State
-  { notificationThread :: ThreadId
-  , startTime          :: UTCTime
-  , clockSettings      :: ClockSettings
+  { hooksThread   :: ThreadId
+  , startTime     :: UTCTime
+  , clockSettings :: ClockSettings
   } deriving (Show)
 
 path :: String
@@ -73,35 +75,34 @@ createHandler mvar (Just m) = response m
   where
     response (Start settings) = do
       time <- getCurrentTime
-      
+
       modifyMVar_ mvar $ \maybeState -> do
-        whenJust maybeState $ killThread . notificationThread 
-        
-        threadId <- forkIO $ do 
+        whenJust maybeState $ killThread . hooksThread
+
+        threadId <- forkIO $ do
           threadDelay 1000000
 
         return . Just $ State threadId time settings
-          
+
       return $ "Clock started with settings: " <> show settings
 
     response Status = do
-      state <- readMVar mvar
-      case state of
-        Nothing -> return "Pomodoro clock is not running." 
-        Just x  -> do
-          currentTime <- getCurrentTime
+      maybeState <- readMVar mvar
+      case maybeState of
+        Nothing    -> return "Pomodoro clock is not running."
+        Just state -> formatPomodoro state <$> getCurrentTime
 
-          let (ClockSettings workT breakT cs) = clockSettings x
-              elapsed   = round . toRational . nominalDiffTimeToSeconds . diffUTCTime currentTime $ startTime x
-              cycleTime = (workT + breakT) * 60
-              currentCycleTime  = cycleTime - elapsed `mod` cycleTime
-              currentCycleState = if currentCycleTime >= breakT * 60 then "Work" else "Break"
-              currentCycle = 1 + elapsed `div` cycleTime
-              minutesLeft = currentCycleTime `div` 60
-              secondsLeft = currentCycleTime `mod` 60
 
-          return $ "Time left: " <> show minutesLeft <> ":" <> show secondsLeft <> "\n"
-                <> "State: "     <> show currentCycleState  <> "\n"
-                <> "Cycle: "     <> show currentCycle <> "/" <> show cs
-
+formatPomodoro :: State -> UTCTime -> String
+formatPomodoro (State _ startTime (ClockSettings workDuration breakDuration totalCycles)) currentTime =
+  let elapsedTimeInSeconds = round . toRational . nominalDiffTimeToSeconds $ diffUTCTime currentTime startTime
+      cycleDurationInSeconds = (workDuration + breakDuration) * 60
+      (completedCycles, elapsedTimeInCurrentCycle) = elapsedTimeInSeconds `divMod` cycleDurationInSeconds
+      isWorkPeriod = elapsedTimeInCurrentCycle < workDuration * 60
+      remainingTimeInCurrentPeriod = if isWorkPeriod
+                                     then workDuration * 60 - elapsedTimeInCurrentCycle
+                                     else cycleDurationInSeconds - elapsedTimeInCurrentCycle
+      (minutesLeft, secondsLeft) = remainingTimeInCurrentPeriod `divMod` 60
+      currentCycleState = if isWorkPeriod then "Work" else "Break"
+  in printf "%s - %02d:%02d, %d/%d" currentCycleState minutesLeft secondsLeft (completedCycles + 1) totalCycles
 
