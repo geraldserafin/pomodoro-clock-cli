@@ -16,6 +16,7 @@ import Control.Concurrent
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
 import Control.Monad.Extra
 import Text.Printf
+import System.Exit (exitSuccess)
 
 type MessageHandler = Maybe Message -> IO String
 
@@ -26,11 +27,11 @@ data State = State
   } deriving (Show)
 
 path :: String
-path = "/tmp/pomodoro_clock_cli_socket"
+path = "/tmp/pomodoro_clock_cli.sock"
 
 start :: IO ()
 start = void . forkProcess $ do
-  removeLink path `onException` return ()
+  removeLink path `catch` \(_ :: SomeException) -> return ()
 
   sock <- socket AF_UNIX Stream defaultProtocol
 
@@ -73,6 +74,8 @@ createHandler :: MVar (Maybe State) -> MessageHandler
 createHandler _    Nothing  = return "Unknown command."
 createHandler mvar (Just m) = response m
   where
+    response Terminate = exitSuccess 
+
     response (Start settings) = do
       time <- getCurrentTime
 

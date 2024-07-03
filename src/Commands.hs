@@ -8,8 +8,8 @@ import GHC.Generics (Generic)
 import Data.Aeson (ToJSON, FromJSON)
 
 data Command
-  = StartDeamon   
-  | MessageDeamon Message 
+  = StartDeamon
+  | MessageDeamon Message
 
 data ClockSettings = ClockSettings
   { workTime :: Int
@@ -20,8 +20,9 @@ data ClockSettings = ClockSettings
 instance ToJSON ClockSettings
 instance FromJSON ClockSettings
 
-data Message 
-  = Start ClockSettings 
+data Message
+  = Start ClockSettings
+  | Terminate
   | Status
   deriving (Show, Generic)
 
@@ -29,9 +30,9 @@ instance ToJSON Message
 instance FromJSON Message
 
 startParser :: Parser Command
-startParser = do 
+startParser = do
   wt <- option auto (long "work-time"  <> short 'w' <> value 25 <> metavar "INT" <> help "Time in minutes for work" )
-  bt <- option auto (long "break-time" <> short 'b' <> value 5  <> metavar "INT" <> help "Time in minutes for break")  
+  bt <- option auto (long "break-time" <> short 'b' <> value 5  <> metavar "INT" <> help "Time in minutes for break")
   cs <- option auto (long "cycles"     <> short 'c' <> value 1  <> metavar "INT" <> help "How many cycles to do"    )
 
   return $ MessageDeamon $ Start $ ClockSettings wt bt cs
@@ -47,15 +48,16 @@ commandParser = subparser
   )
 
 deamonCommandsParser :: Parser Command
-deamonCommandsParser = subparser 
+deamonCommandsParser = subparser
   ( command "start" (info (pure StartDeamon <**> helper) (progDesc "Starts the deamon"))
+ <> command "stop"  (info (pure (MessageDeamon Terminate) <**> helper) (progDesc "Terminates the deamon"))
   )
 
 opts :: ParserInfo Command
 opts = info (commandParser <**> helper)
   ( fullDesc
  <> progDesc "A simple timer application"
- <> header "timer - a simple timer application" 
+ <> header "timer - a simple timer application"
   )
 
 parseCommand :: IO Command
