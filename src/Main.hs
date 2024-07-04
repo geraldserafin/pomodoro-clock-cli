@@ -6,6 +6,6 @@ main = do
   cmd <- parseCommand
 
   case cmd of
-    StartDeamon     -> Deamon.start
-    MessageDeamon m -> Deamon.sendMessage m
+    Start   s -> Deamon.start s
+    Message m -> putStrLn =<< Deamon.sendMessage m
 

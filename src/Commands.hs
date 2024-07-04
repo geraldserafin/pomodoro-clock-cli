@@ -8,26 +8,22 @@ import GHC.Generics (Generic)
 import Data.Aeson (ToJSON, FromJSON)
 
 data Command
-  = StartDeamon
-  | MessageDeamon Message
+  = Start   ClockSettings
+  | Message ClockMessage
 
 data ClockSettings = ClockSettings
-  { workTime :: Int
+  { workTime  :: Int
   , breakTime :: Int
-  , cycles :: Int
+  , cycles    :: Int
   } deriving (Show, Generic)
 
 instance ToJSON ClockSettings
 instance FromJSON ClockSettings
 
-data Message
-  = Start ClockSettings
-  | Terminate
-  | Status
-  deriving (Show, Generic)
+data ClockMessage = Terminate | Status deriving (Show, Generic)
 
-instance ToJSON Message
-instance FromJSON Message
+instance ToJSON ClockMessage
+instance FromJSON ClockMessage
 
 startParser :: Parser Command
 startParser = do
@@ -35,22 +31,16 @@ startParser = do
   bt <- option auto (long "break-time" <> short 'b' <> value 5  <> metavar "INT" <> help "Time in minutes for break")
   cs <- option auto (long "cycles"     <> short 'c' <> value 1  <> metavar "INT" <> help "How many cycles to do"    )
 
-  return $ MessageDeamon $ Start $ ClockSettings wt bt cs
+  return $ Start $ ClockSettings wt bt cs
 
 statusParser :: Parser Command
-statusParser = pure $ MessageDeamon Status
+statusParser = pure $ Message Status
 
 commandParser :: Parser Command
 commandParser = subparser
   ( command "start"  (info (startParser  <**> helper) (progDesc "Start the timer"))
- <> command "status" (info (statusParser <**> helper) (progDesc "Show the status"))
- <> command "deamon" (info (deamonCommandsParser <**> helper) (progDesc "Manage the deamon"))
-  )
-
-deamonCommandsParser :: Parser Command
-deamonCommandsParser = subparser
-  ( command "start" (info (pure StartDeamon <**> helper) (progDesc "Starts the deamon"))
- <> command "stop"  (info (pure (MessageDeamon Terminate) <**> helper) (progDesc "Terminates the deamon"))
+ <> command "status" (info (pure (Message Status   ) <**> helper) (progDesc "Show the status"))
+ <> command "stop"   (info (pure (Message Terminate) <**> helper) (progDesc "Terminates the deamon"))
   )
 
 opts :: ParserInfo Command

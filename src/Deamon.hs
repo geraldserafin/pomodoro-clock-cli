@@ -11,26 +11,23 @@ import System.Posix hiding (elapsedTime, Start)
 import Data.Aeson
 import Control.Exception
 import Control.Monad
-import GHC.IO.Exception
 import Control.Concurrent
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
-import Control.Monad.Extra
 import Text.Printf
 import System.Exit (exitSuccess)
 
-type MessageHandler = Maybe Message -> IO String
+type MessageHandler = Maybe ClockMessage -> IO String
 
 data State = State
-  { hooksThread   :: ThreadId
-  , startTime     :: UTCTime
+  { startTime     :: UTCTime
   , clockSettings :: ClockSettings
   } deriving (Show)
 
 path :: String
 path = "/tmp/pomodoro_clock_cli.sock"
 
-start :: IO ()
-start = void . forkProcess $ do
+start :: ClockSettings -> IO ()
+start s = void . forkProcess $ do
   removeLink path `catch` \(_ :: SomeException) -> return ()
 
   sock <- socket AF_UNIX Stream defaultProtocol
@@ -38,7 +35,8 @@ start = void . forkProcess $ do
   bind   sock (SockAddrUnix path)
   listen sock 5
 
-  state <- newMVar Nothing
+  time     <- getCurrentTime
+  state    <- newMVar $ State time s
 
   handleConnections sock $ createHandler state
 
@@ -47,7 +45,7 @@ handleConnections sock handler = do
   (conn, _) <- accept sock
   msg       <- recv conn 1024
 
-  let decodedMessage = decode (BS.fromStrict msg) :: Maybe Message
+  let decodedMessage = decode (BS.fromStrict msg) :: Maybe ClockMessage
 
   res <- handler decodedMessage
   _   <- sendAll conn $ BS.pack res
@@ -55,49 +53,30 @@ handleConnections sock handler = do
   close conn
   handleConnections sock handler
 
-sendMessage :: Message -> IO ()
+sendMessage :: ClockMessage -> IO String
 sendMessage m =  do
-  sock <- socket AF_UNIX Stream defaultProtocol
+  sock   <- socket AF_UNIX Stream defaultProtocol
+  result <- try $ connect sock (SockAddrUnix path) :: IO (Either SomeException ())
 
-  connect sock (SockAddrUnix path) `onException` do
-    putStrLn "Deamon is not running. Start it by using `pomodoro deamon start`."
-    exitImmediately $ ExitFailure 1
+  case result of
+    Left  _ -> return "No pomodoro clock running."
+    Right _ -> do
+      sendAll sock . BS.toStrict $ encode m
+      res <- recv sock 1024
+      close sock
+      return $ BS.unpack res
 
-  sendAll sock . BS.toStrict $ encode m
-
-  res  <- recv sock 1024
-
-  putStrLn $ BS.unpack res
-  close sock
-
-createHandler :: MVar (Maybe State) -> MessageHandler
+createHandler :: MVar State -> MessageHandler
 createHandler _    Nothing  = return "Unknown command."
 createHandler mvar (Just m) = response m
   where
     response Terminate = exitSuccess 
-
-    response (Start settings) = do
-      time <- getCurrentTime
-
-      modifyMVar_ mvar $ \maybeState -> do
-        whenJust maybeState $ killThread . hooksThread
-
-        threadId <- forkIO $ do
-          threadDelay 1000000
-
-        return . Just $ State threadId time settings
-
-      return $ "Clock started with settings: " <> show settings
-
     response Status = do
-      maybeState <- readMVar mvar
-      case maybeState of
-        Nothing    -> return "Pomodoro clock is not running."
-        Just state -> formatPomodoro state <$> getCurrentTime
-
+      state <- readMVar mvar
+      formatPomodoro state <$> getCurrentTime
 
 formatPomodoro :: State -> UTCTime -> String
-formatPomodoro (State _ startTime (ClockSettings workDuration breakDuration totalCycles)) currentTime =
+formatPomodoro (State startTime (ClockSettings workDuration breakDuration totalCycles)) currentTime =
   let elapsedTimeInSeconds = round . toRational . nominalDiffTimeToSeconds $ diffUTCTime currentTime startTime
       cycleDurationInSeconds = (workDuration + breakDuration) * 60
       (completedCycles, elapsedTimeInCurrentCycle) = elapsedTimeInSeconds `divMod` cycleDurationInSeconds
