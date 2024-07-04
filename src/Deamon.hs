@@ -71,7 +71,7 @@ createHandler _    Nothing  = return "Unknown command."
 createHandler mvar (Just m) = response m
   where
     response Terminate = exitSuccess 
-    response Status = do
+    response Status    = do
       state <- readMVar mvar
       formatPomodoro state <$> getCurrentTime
 
