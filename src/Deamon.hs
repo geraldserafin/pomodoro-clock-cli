@@ -14,7 +14,8 @@ import Control.Monad
 import Control.Concurrent
 import Data.Time (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
 import Text.Printf
-import System.Exit (exitSuccess)
+import System.Exit (ExitCode (ExitSuccess))
+import System.Process.Extra (callCommand)
 
 type MessageHandler = Maybe ClockMessage -> IO String
 
@@ -35,8 +36,12 @@ start s = void . forkProcess $ do
   bind   sock (SockAddrUnix path)
   listen sock 5
 
-  time     <- getCurrentTime
-  state    <- newMVar $ State time s
+  time  <- getCurrentTime
+  state <- newMVar $ State time s
+  
+  _ <- forkIO $ do 
+    scheduleHooks s
+    exitImmediately ExitSuccess 
 
   handleConnections sock $ createHandler state
 
@@ -70,7 +75,7 @@ createHandler :: MVar State -> MessageHandler
 createHandler _    Nothing  = return "Unknown command."
 createHandler mvar (Just m) = response m
   where
-    response Terminate = exitSuccess 
+    response Terminate = exitImmediately ExitSuccess 
     response Status    = do
       state <- readMVar mvar
       formatPomodoro state <$> getCurrentTime
@@ -87,4 +92,11 @@ formatPomodoro (State startTime (ClockSettings workDuration breakDuration totalC
       (minutesLeft, secondsLeft) = remainingTimeInCurrentPeriod `divMod` 60
       currentCycleState = if isWorkPeriod then "Work" else "Break"
   in printf "%s - %02d:%02d, %d/%d" currentCycleState minutesLeft secondsLeft (completedCycles + 1) totalCycles
+
+scheduleHooks :: ClockSettings -> IO ()
+scheduleHooks (ClockSettings wt bt cs) = replicateM_ cs $ do
+  _ <- try $ callCommand "~/.pomodoro/on-work-start.sh" :: IO (Either SomeException ())
+  threadDelay $ 1000000 * 60 * wt
+  _ <- try $ callCommand "~/.pomodoro/on-break-start.sh" :: IO (Either SomeException ())
+  threadDelay $ 1000000 * 60 * bt
 
