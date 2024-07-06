@@ -95,8 +95,8 @@ formatPomodoro (State startTime (ClockSettings workDuration breakDuration totalC
 
 scheduleHooks :: ClockSettings -> IO ()
 scheduleHooks (ClockSettings wt bt cs) = replicateM_ cs $ do
-  _ <- try $ callCommand "~/.pomodoro/on-work-start.sh" :: IO (Either SomeException ())
+  _ <- try $ callCommand "~/.pomodoro/on-work-start.sh 2>/dev/null" :: IO (Either SomeException ())
   threadDelay $ 1000000 * 60 * wt
-  _ <- try $ callCommand "~/.pomodoro/on-break-start.sh" :: IO (Either SomeException ())
+  _ <- try $ callCommand "~/.pomodoro/on-break-start.sh 2>/dev/null" :: IO (Either SomeException ())
   threadDelay $ 1000000 * 60 * bt
 
