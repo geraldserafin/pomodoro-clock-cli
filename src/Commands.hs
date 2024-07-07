@@ -12,9 +12,10 @@ data Command
   | Message ClockMessage
 
 data ClockSettings = ClockSettings
-  { workTime  :: Int
-  , breakTime :: Int
-  , cycles    :: Int
+  { workTime      :: Int
+  , breakTime     :: Int
+  , longBreakTime :: Int
+  , cycles        :: Int
   } deriving (Show, Generic)
 
 instance ToJSON ClockSettings
@@ -27,11 +28,12 @@ instance FromJSON ClockMessage
 
 startParser :: Parser Command
 startParser = do
-  wt <- option auto (long "work-time"  <> short 'w' <> value 25 <> metavar "INT" <> help "Time in minutes for work" )
-  bt <- option auto (long "break-time" <> short 'b' <> value 5  <> metavar "INT" <> help "Time in minutes for break")
-  cs <- option auto (long "cycles"     <> short 'c' <> value 1  <> metavar "INT" <> help "How many cycles to do"    )
+  wt  <- option auto (long "work-time"        <> short 'w' <> value 25 <> metavar "INT" <> help "Time in minutes for work"       )
+  sbt <- option auto (long "short-break-time" <> short 's' <> value 5  <> metavar "INT" <> help "Time in minutes for short break")
+  lbt <- option auto (long "long-break-time"  <> short 'l' <> value 15 <> metavar "INT" <> help "Time in minutes for long break" )
+  cs  <- option auto (long "cycles"           <> short 'c' <> value 1  <> metavar "INT" <> help "How many cycles to do"          )
 
-  return $ Start $ ClockSettings wt bt cs
+  return $ Start $ ClockSettings wt sbt lbt cs
 
 statusParser :: Parser Command
 statusParser = pure $ Message Status

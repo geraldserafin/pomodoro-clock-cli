@@ -81,20 +81,20 @@ createHandler mvar (Just m) = response m
       formatPomodoro state <$> getCurrentTime
 
 formatPomodoro :: State -> UTCTime -> String
-formatPomodoro (State startTime (ClockSettings workDuration breakDuration totalCycles)) currentTime =
-  let elapsedTimeInSeconds = round . toRational . nominalDiffTimeToSeconds $ diffUTCTime currentTime startTime
-      cycleDurationInSeconds = (workDuration + breakDuration) * 60
+formatPomodoro (State st (ClockSettings wt sbt lbt cs)) ct =
+  let elapsedTimeInSeconds = round . toRational . nominalDiffTimeToSeconds $ diffUTCTime ct st
+      cycleDurationInSeconds = (wt + sbt) * 60
       (completedCycles, elapsedTimeInCurrentCycle) = elapsedTimeInSeconds `divMod` cycleDurationInSeconds
-      isWorkPeriod = elapsedTimeInCurrentCycle < workDuration * 60
+      isWorkPeriod = elapsedTimeInCurrentCycle < wt * 60
       remainingTimeInCurrentPeriod = if isWorkPeriod
-                                     then workDuration * 60 - elapsedTimeInCurrentCycle
+                                     then wt * 60 - elapsedTimeInCurrentCycle
                                      else cycleDurationInSeconds - elapsedTimeInCurrentCycle
       (minutesLeft, secondsLeft) = remainingTimeInCurrentPeriod `divMod` 60
       currentCycleState = if isWorkPeriod then "Work" else "Break"
-  in printf "%s - %02d:%02d, %d/%d" currentCycleState minutesLeft secondsLeft (completedCycles + 1) totalCycles
+  in printf "%s - %02d:%02d, %d/%d" currentCycleState minutesLeft secondsLeft (completedCycles + 1) cs
 
 scheduleHooks :: ClockSettings -> IO ()
-scheduleHooks (ClockSettings wt bt cs) = replicateM_ cs $ do
+scheduleHooks (ClockSettings wt bt lbt cs) = replicateM_ cs $ do
   _ <- try $ callCommand "~/.pomodoro/on-work-start.sh 2>/dev/null" :: IO (Either SomeException ())
   threadDelay $ 1000000 * 60 * wt
   _ <- try $ callCommand "~/.pomodoro/on-break-start.sh 2>/dev/null" :: IO (Either SomeException ())
