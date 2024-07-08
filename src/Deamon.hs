@@ -17,7 +17,7 @@ import Text.Printf
 import System.Exit (ExitCode (ExitSuccess))
 import System.Process.Extra (callCommand)
 
-type MessageHandler = Maybe ClockMessage -> IO String
+type MessageHandler = Maybe ClockMessage -> IO (Maybe String)
 
 data State = State
   { startTime     :: UTCTime
@@ -53,32 +53,32 @@ handleConnections sock handler = do
   let decodedMessage = decode (BS.fromStrict msg) :: Maybe ClockMessage
 
   res <- handler decodedMessage
-  _   <- sendAll conn $ BS.pack res
+  _   <- sendAll conn $ BS.toStrict $ encode res
 
   close conn
   handleConnections sock handler
 
-sendMessage :: ClockMessage -> IO String
+sendMessage :: ClockMessage -> IO (Maybe String)
 sendMessage m =  do
   sock   <- socket AF_UNIX Stream defaultProtocol
   result <- try $ connect sock (SockAddrUnix path) :: IO (Either SomeException ())
 
   case result of
-    Left  _ -> return "No pomodoro clock running."
+    Left  _ -> return Nothing 
     Right _ -> do
       sendAll sock . BS.toStrict $ encode m
       res <- recv sock 1024
       close sock
-      return $ BS.unpack res
+      return $ decode $ BS.fromStrict res
 
 createHandler :: MVar State -> MessageHandler
-createHandler _    Nothing  = return "Unknown command."
+createHandler _    Nothing  = return Nothing
 createHandler mvar (Just m) = response m
   where
     response Terminate = exitImmediately ExitSuccess 
     response Status    = do
       state <- readMVar mvar
-      formatPomodoro state <$> getCurrentTime
+      return . formatPomodoro state <$> getCurrentTime
 
 formatPomodoro :: State -> UTCTime -> String
 formatPomodoro (State st (ClockSettings wt sbt lbt cs)) ct =

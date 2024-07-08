@@ -7,5 +7,5 @@ main = do
 
   case cmd of
     Start   s -> Deamon.sendMessage Terminate >> Deamon.start s
-    Message m -> Deamon.sendMessage m >>= putStrLn
+    Message m -> Deamon.sendMessage m >>= mapM_ putStrLn
 
