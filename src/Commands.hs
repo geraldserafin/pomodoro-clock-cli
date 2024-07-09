@@ -1,11 +1,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE TemplateHaskell #-}
 
 module Commands where
 
 import Options.Applicative
 import GHC.Generics (Generic)
-import Data.Aeson (ToJSON, FromJSON)
+import Data.Aeson.TH (deriveJSON, defaultOptions)
 
 data Command
   = Start   ClockSettings
@@ -16,15 +17,13 @@ data ClockSettings = ClockSettings
   , breakTime     :: Int
   , longBreakTime :: Int
   , cycles        :: Int
+  , longBreakFrequency :: Int
   } deriving (Show, Generic)
 
-instance ToJSON ClockSettings
-instance FromJSON ClockSettings
+data ClockMessage = Terminate | Status | Toggle deriving (Show, Generic)
 
-data ClockMessage = Terminate | Status deriving (Show, Generic)
-
-instance ToJSON ClockMessage
-instance FromJSON ClockMessage
+$(deriveJSON defaultOptions ''ClockMessage)
+$(deriveJSON defaultOptions ''ClockSettings)
 
 startParser :: Parser Command
 startParser = do
@@ -32,8 +31,9 @@ startParser = do
   sbt <- option auto (long "short-break-time" <> short 's' <> value 5  <> metavar "INT" <> help "Time in minutes for short break")
   lbt <- option auto (long "long-break-time"  <> short 'l' <> value 15 <> metavar "INT" <> help "Time in minutes for long break" )
   cs  <- option auto (long "cycles"           <> short 'c' <> value 1  <> metavar "INT" <> help "How many cycles to do"          )
+  lbf <- option auto (long "long-break-freq"  <> short 'f' <> value 4  <> metavar "INT" <> help "Every nth cycle to have a longer break")
 
-  return $ Start $ ClockSettings wt sbt lbt cs
+  return $ Start $ ClockSettings wt sbt lbt cs lbf
 
 statusParser :: Parser Command
 statusParser = pure $ Message Status
@@ -43,6 +43,7 @@ commandParser = subparser
   ( command "start"  (info (startParser  <**> helper) (progDesc "Start the timer"))
  <> command "status" (info (pure (Message Status   ) <**> helper) (progDesc "Show the status"))
  <> command "stop"   (info (pure (Message Terminate) <**> helper) (progDesc "Terminates the deamon"))
+ <> command "toggle" (info (pure (Message Toggle   ) <**> helper) (progDesc "Toggle the clock"))
   )
 
 opts :: ParserInfo Command

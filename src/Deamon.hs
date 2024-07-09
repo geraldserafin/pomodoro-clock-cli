@@ -4,24 +4,29 @@
 module Deamon (start, sendMessage) where
 
 import qualified Data.ByteString.Char8 as BS
-import Commands
+import Commands ( ClockMessage(..), ClockSettings(ClockSettings, cycles) )
 import Network.Socket
-import Network.Socket.ByteString
-import System.Posix hiding (elapsedTime, Start)
-import Data.Aeson
-import Control.Exception
-import Control.Monad
-import Control.Concurrent
-import Data.Time (UTCTime, getCurrentTime, diffUTCTime, nominalDiffTimeToSeconds)
-import Text.Printf
-import System.Exit (ExitCode (ExitSuccess))
+import Network.Socket.ByteString ( recv, sendAll )
+import System.Posix ( removeLink, exitImmediately, forkProcess )
+import Data.Aeson ( encode, decode )
+import Control.Exception ( SomeException, try, catch )
+import Control.Monad ( void )
+import Control.Concurrent ( newMVar, readMVar, MVar, modifyMVar_, threadDelay, forkIO )
+import System.Exit ( ExitCode (ExitSuccess) )
+import Data.Hourglass ( Elapsed (..) )
+import System.Hourglass ( timeCurrent )
+import Utils ( pairs, takeWhile_ )
+import Control.Monad.Extra (when)
 import System.Process.Extra (callCommand)
 
 type MessageHandler = Maybe ClockMessage -> IO (Maybe String)
-
-data State = State
-  { startTime     :: UTCTime
-  , clockSettings :: ClockSettings
+data State = State { _time :: [Elapsed], _settings :: ClockSettings }
+data ClockState = Work | Break deriving (Show, Eq)
+data ClockStatus = ClockStatus
+  { _minutes :: Int
+  , _seconds :: Int
+  , _cycle   :: Int
+  , _state   :: ClockState
   } deriving (Show)
 
 path :: String
@@ -36,12 +41,10 @@ start s = void . forkProcess $ do
   bind   sock (SockAddrUnix path)
   listen sock 5
 
-  time  <- getCurrentTime
-  state <- newMVar $ State time s
-  
-  _ <- forkIO $ do 
-    scheduleHooks s
-    exitImmediately ExitSuccess 
+  time  <- timeCurrent
+  state <- newMVar $ State [time] s
+
+  void . forkIO $ hookTrigger state
 
   handleConnections sock $ createHandler state
 
@@ -64,7 +67,7 @@ sendMessage m =  do
   result <- try $ connect sock (SockAddrUnix path) :: IO (Either SomeException ())
 
   case result of
-    Left  _ -> return Nothing 
+    Left  _ -> return Nothing
     Right _ -> do
       sendAll sock . BS.toStrict $ encode m
       res <- recv sock 1024
@@ -75,28 +78,40 @@ createHandler :: MVar State -> MessageHandler
 createHandler _    Nothing  = return Nothing
 createHandler mvar (Just m) = response m
   where
-    response Terminate = exitImmediately ExitSuccess 
-    response Status    = do
+    response Terminate = exitImmediately ExitSuccess
+
+    response Toggle = do
+      time <- timeCurrent
+      modifyMVar_ mvar $ \state -> return state { _time = time : _time state }
+      return Nothing
+
+    response Status = do
       state <- readMVar mvar
-      return . formatPomodoro state <$> getCurrentTime
+      time  <- timeCurrent
+      return . Just $ show $ status time state
 
-formatPomodoro :: State -> UTCTime -> String
-formatPomodoro (State st (ClockSettings wt sbt lbt cs)) ct =
-  let elapsedTimeInSeconds = round . toRational . nominalDiffTimeToSeconds $ diffUTCTime ct st
-      cycleDurationInSeconds = (wt + sbt) * 60
-      (completedCycles, elapsedTimeInCurrentCycle) = elapsedTimeInSeconds `divMod` cycleDurationInSeconds
-      isWorkPeriod = elapsedTimeInCurrentCycle < wt * 60
-      remainingTimeInCurrentPeriod = if isWorkPeriod
-                                     then wt * 60 - elapsedTimeInCurrentCycle
-                                     else cycleDurationInSeconds - elapsedTimeInCurrentCycle
-      (minutesLeft, secondsLeft) = remainingTimeInCurrentPeriod `divMod` 60
-      currentCycleState = if isWorkPeriod then "Work" else "Break"
-  in printf "%s - %02d:%02d, %d/%d" currentCycleState minutesLeft secondsLeft (completedCycles + 1) cs
+status :: Elapsed -> State -> ClockStatus
+status ct (State st (ClockSettings wt sbt lbt _ lbf)) =
+  let (Elapsed s)  = abs . sum . map (uncurry (-)) . pairs $ st <> [ct]
+      elapsed      = fromIntegral s :: Int
+      stages       = scanl1 (+) . map (*60) . cycle . concat $ replicate (lbf-1) [wt, sbt] ++ [[wt, lbt]]
+      completed    = takeWhile_ (<elapsed) stages
+      (min, sec)   = (last completed - elapsed) `divMod` 60
+      state        = if odd $ length completed then Work else Break
+      currentCycle = (1 + length completed) `div` 2
+  in ClockStatus min sec currentCycle state 
 
-scheduleHooks :: ClockSettings -> IO ()
-scheduleHooks (ClockSettings wt bt lbt cs) = replicateM_ cs $ do
-  _ <- try $ callCommand "~/.pomodoro/on-work-start.sh 2>/dev/null" :: IO (Either SomeException ())
-  threadDelay $ 1000000 * 60 * wt
-  _ <- try $ callCommand "~/.pomodoro/on-break-start.sh 2>/dev/null" :: IO (Either SomeException ())
-  threadDelay $ 1000000 * 60 * bt
+hookTrigger :: MVar State -> IO ()
+hookTrigger mvar = do
+  threadDelay 1000000
 
+  state <- readMVar mvar
+  time  <- timeCurrent
+  let (ClockStatus _ s c st) = status time state
+
+  when (s == 0 && c == (cycles . _settings) state && st == Work) $ exitImmediately ExitSuccess 
+
+  when (s == 0 && st == Work)  $ callCommand "~/.pomodoro/on-break-start.sh 2>/dev/null"
+  when (s == 0 && st == Break) $ callCommand "~/.pomodoro/on-work-start.sh  2>/dev/null"
+  
+  hookTrigger mvar
