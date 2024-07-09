@@ -20,7 +20,7 @@ data ClockSettings = ClockSettings
   , longBreakFrequency :: Int
   } deriving (Show, Generic)
 
-data ClockMessage = Terminate | Status | Toggle deriving (Show, Generic)
+data ClockMessage = Terminate | Status String | Toggle deriving (Show, Generic)
 
 $(deriveJSON defaultOptions ''ClockMessage)
 $(deriveJSON defaultOptions ''ClockSettings)
@@ -36,12 +36,12 @@ startParser = do
   return $ Start $ ClockSettings wt sbt lbt cs lbf
 
 statusParser :: Parser Command
-statusParser = pure $ Message Status
+statusParser = Message . Status <$> strOption (long "format" <> short 'f' <> value "{time} ({state}), #{cycle}")
 
 commandParser :: Parser Command
 commandParser = subparser
   ( command "start"  (info (startParser  <**> helper) (progDesc "Start the timer"))
- <> command "status" (info (pure (Message Status   ) <**> helper) (progDesc "Show the status"))
+ <> command "status" (info (statusParser <**> helper) (progDesc "Show the status"))
  <> command "stop"   (info (pure (Message Terminate) <**> helper) (progDesc "Terminates the deamon"))
  <> command "toggle" (info (pure (Message Toggle   ) <**> helper) (progDesc "Toggle the clock"))
   )

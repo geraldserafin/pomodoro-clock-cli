@@ -18,6 +18,8 @@ import System.Hourglass ( timeCurrent )
 import Utils ( pairs, takeWhile_ )
 import Control.Monad.Extra (when)
 import System.Process.Extra (callCommand)
+import Data.List.Extra (replace)
+import Text.Printf (printf)
 
 type MessageHandler = Maybe ClockMessage -> IO (Maybe String)
 data State = State { _time :: [Elapsed], _settings :: ClockSettings }
@@ -85,10 +87,10 @@ createHandler mvar (Just m) = response m
       modifyMVar_ mvar $ \state -> return state { _time = time : _time state }
       return Nothing
 
-    response Status = do
+    response (Status fmt) = do
       state <- readMVar mvar
       time  <- timeCurrent
-      return . Just $ show $ status time state
+      return . Just . format fmt $ status time state
 
 status :: Elapsed -> State -> ClockStatus
 status ct (State st (ClockSettings wt sbt lbt _ lbf)) =
@@ -99,7 +101,14 @@ status ct (State st (ClockSettings wt sbt lbt _ lbf)) =
       (min, sec)   = (last completed - elapsed) `divMod` 60
       state        = if odd $ length completed then Work else Break
       currentCycle = (1 + length completed) `div` 2
-  in ClockStatus min sec currentCycle state 
+  in ClockStatus min sec currentCycle state
+
+format :: String -> ClockStatus -> String
+format fmt (ClockStatus m s c st) = 
+  let time  = ("{time}" , printf "%02d:%02d" m s)
+      state = ("{state}", show st)
+      cycle = ("{cycle}", show c )
+  in foldr (uncurry replace) fmt [time, state, cycle]
 
 hookTrigger :: MVar State -> IO ()
 hookTrigger mvar = do
@@ -109,9 +118,9 @@ hookTrigger mvar = do
   time  <- timeCurrent
   let (ClockStatus _ s c st) = status time state
 
-  when (s == 0 && c == (cycles . _settings) state && st == Work) $ exitImmediately ExitSuccess 
+  when (s == 0 && c == (cycles . _settings) state && st == Work) $ exitImmediately ExitSuccess
 
   when (s == 0 && st == Work)  $ callCommand "~/.pomodoro/on-break-start.sh 2>/dev/null"
   when (s == 0 && st == Break) $ callCommand "~/.pomodoro/on-work-start.sh  2>/dev/null"
-  
+
   hookTrigger mvar
