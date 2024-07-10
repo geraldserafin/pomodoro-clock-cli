@@ -36,7 +36,7 @@ startParser = do
   return $ Start $ ClockSettings wt sbt lbt cs lbf
 
 statusParser :: Parser Command
-statusParser = Message . Status <$> strOption (long "format" <> short 'f' <> value "{time} ({state}), #{cycle}")
+statusParser = Message . Status <$> strOption (long "format" <> short 'f' <> value "{time} ({state}), {cycle}/{goal}")
 
 commandParser :: Parser Command
 commandParser = subparser

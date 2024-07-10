@@ -4,7 +4,7 @@
 module Deamon (start, sendMessage) where
 
 import qualified Data.ByteString.Char8 as BS
-import Commands ( ClockMessage(..), ClockSettings(ClockSettings, cycles) )
+import Commands ( ClockMessage(..), ClockSettings(ClockSettings) )
 import Network.Socket
 import Network.Socket.ByteString ( recv, sendAll )
 import System.Posix ( removeLink, exitImmediately, forkProcess )
@@ -25,9 +25,9 @@ type MessageHandler = Maybe ClockMessage -> IO (Maybe String)
 data State = State { _time :: [Elapsed], _settings :: ClockSettings }
 data ClockState = Work | Break deriving (Show, Eq)
 data ClockStatus = ClockStatus
-  { _minutes :: Int
-  , _seconds :: Int
+  { time    :: Int 
   , _cycle   :: Int
+  , goal     :: Int
   , _state   :: ClockState
   } deriving (Show)
 
@@ -93,22 +93,23 @@ createHandler mvar (Just m) = response m
       return . Just . format fmt $ status time state
 
 status :: Elapsed -> State -> ClockStatus
-status ct (State st (ClockSettings wt sbt lbt _ lbf)) =
+status ct (State st (ClockSettings wt sbt lbt cs lbf)) =
   let (Elapsed s)  = abs . sum . map (uncurry (-)) . pairs $ st <> [ct]
       elapsed      = fromIntegral s :: Int
       stages       = scanl1 (+) . map (*60) . cycle . concat $ replicate (lbf-1) [wt, sbt] ++ [[wt, lbt]]
       completed    = takeWhile_ (<elapsed) stages
-      (min, sec)   = (last completed - elapsed) `divMod` 60
+      timeLeft     = last completed - elapsed
       state        = if odd $ length completed then Work else Break
       currentCycle = (1 + length completed) `div` 2
-  in ClockStatus min sec currentCycle state
+  in ClockStatus timeLeft currentCycle cs state
 
 format :: String -> ClockStatus -> String
-format fmt (ClockStatus m s c st) = 
-  let time  = ("{time}" , printf "%02d:%02d" m s)
-      state = ("{state}", show st)
-      cycle = ("{cycle}", show c )
-  in foldr (uncurry replace) fmt [time, state, cycle]
+format fmt (ClockStatus t c g st) = foldr (uncurry replace) fmt 
+  [ ("{time}" , uncurry (printf "%02d:%02d") $ t `divMod` 60)
+  , ("{state}", show st)
+  , ("{cycle}", show c )
+  , ("{goal}" , show g )
+  ]
 
 hookTrigger :: MVar State -> IO ()
 hookTrigger mvar = do
@@ -116,11 +117,11 @@ hookTrigger mvar = do
 
   state <- readMVar mvar
   time  <- timeCurrent
-  let (ClockStatus _ s c st) = status time state
+  let (ClockStatus t c g st) = status time state
 
-  when (s == 0 && c == (cycles . _settings) state && st == Work) $ exitImmediately ExitSuccess
+  when (t == 0 && c == g && st == Work) $ exitImmediately ExitSuccess
 
-  when (s == 0 && st == Work)  $ callCommand "~/.pomodoro/on-break-start.sh 2>/dev/null"
-  when (s == 0 && st == Break) $ callCommand "~/.pomodoro/on-work-start.sh  2>/dev/null"
+  when (t == 0 && st == Work)  $ callCommand "~/.pomodoro/on-break-start.sh 2>/dev/null"
+  when (t == 0 && st == Break) $ callCommand "~/.pomodoro/on-work-start.sh  2>/dev/null"
 
   hookTrigger mvar
