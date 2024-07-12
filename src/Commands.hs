@@ -13,9 +13,10 @@ data Command
   | Message ClockMessage
 
 data ClockSettings = ClockSettings
-  { workTime      :: Int
-  , breakTime     :: Int
-  , longBreakTime :: Int
+  { title         :: Maybe String
+  , workTime      :: Float
+  , breakTime     :: Float
+  , longBreakTime :: Float
   , cycles        :: Int
   , longBreakFrequency :: Int
   } deriving (Show, Generic)
@@ -27,16 +28,17 @@ $(deriveJSON defaultOptions ''ClockSettings)
 
 startParser :: Parser Command
 startParser = do
+  t   <- optional $ argument str (metavar "STRING" <> help "The task to be done")
   wt  <- option auto (long "work-time"        <> short 'w' <> value 25 <> metavar "INT" <> help "Time in minutes for work"       )
   sbt <- option auto (long "short-break-time" <> short 's' <> value 5  <> metavar "INT" <> help "Time in minutes for short break")
   lbt <- option auto (long "long-break-time"  <> short 'l' <> value 15 <> metavar "INT" <> help "Time in minutes for long break" )
   cs  <- option auto (long "cycles"           <> short 'c' <> value 1  <> metavar "INT" <> help "How many cycles to do"          )
   lbf <- option auto (long "long-break-freq"  <> short 'f' <> value 4  <> metavar "INT" <> help "Every nth cycle to have a longer break")
 
-  return $ Start $ ClockSettings wt sbt lbt cs lbf
+  return $ Start $ ClockSettings t wt sbt lbt cs lbf
 
 statusParser :: Parser Command
-statusParser = Message . Status <$> strOption (long "format" <> short 'f' <> value "{time} ({state}), {cycle}/{goal}")
+statusParser = Message . Status <$> strOption (long "format" <> short 'f' <> value "{title} {time} ({state}), {cycle}/{goal}")
 
 commandParser :: Parser Command
 commandParser = subparser

@@ -17,15 +17,18 @@ import Data.Hourglass ( Elapsed (..) )
 import System.Hourglass ( timeCurrent )
 import Utils ( pairs, takeWhile_ )
 import Control.Monad.Extra (when)
-import System.Process.Extra (callCommand)
+import System.Process.Extra ( createProcess, proc, StdStream (NoStream), std_err )
 import Data.List.Extra (replace)
 import Text.Printf (printf)
+import Data.Maybe (fromMaybe)
+import System.Directory.Extra (getHomeDirectory)
 
 type MessageHandler = Maybe ClockMessage -> IO (Maybe String)
 data State = State { _time :: [Elapsed], _settings :: ClockSettings }
 data ClockState = Work | Break deriving (Show, Eq)
 data ClockStatus = ClockStatus
-  { time    :: Int 
+  { title' :: Maybe String
+  , time    :: Int 
   , _cycle   :: Int
   , goal     :: Int
   , _state   :: ClockState
@@ -93,23 +96,31 @@ createHandler mvar (Just m) = response m
       return . Just . format fmt $ status time state
 
 status :: Elapsed -> State -> ClockStatus
-status ct (State st (ClockSettings wt sbt lbt cs lbf)) =
-  let (Elapsed s)  = abs . sum . map (uncurry (-)) . pairs $ st <> [ct]
-      elapsed      = fromIntegral s :: Int
+status ct (State st (ClockSettings title wt sbt lbt cs lbf)) =
+  let (Elapsed s)  = sum . map (abs . uncurry (-)) . pairs $ st <> [ct]
+      elapsed      = fromIntegral s :: Float
       stages       = scanl1 (+) . map (*60) . cycle . concat $ replicate (lbf-1) [wt, sbt] ++ [[wt, lbt]]
       completed    = takeWhile_ (<elapsed) stages
       timeLeft     = last completed - elapsed
       state        = if odd $ length completed then Work else Break
       currentCycle = (1 + length completed) `div` 2
-  in ClockStatus timeLeft currentCycle cs state
+  in ClockStatus title (round timeLeft) currentCycle cs state
 
 format :: String -> ClockStatus -> String
-format fmt (ClockStatus t c g st) = foldr (uncurry replace) fmt 
+format fmt (ClockStatus tt t c g st) = foldr (uncurry replace) fmt 
   [ ("{time}" , uncurry (printf "%02d:%02d") $ t `divMod` 60)
   , ("{state}", show st)
   , ("{cycle}", show c )
   , ("{goal}" , show g )
+  , ("{title}", fromMaybe "" tt)
   ]
+
+
+runScript :: String -> IO ()
+runScript name = do
+  homeDir <- getHomeDirectory
+  void $ createProcess (proc "/bin/sh" [homeDir <> "/.pomodoro/" <> name]) { std_err = NoStream }
+
 
 hookTrigger :: MVar State -> IO ()
 hookTrigger mvar = do
@@ -117,11 +128,14 @@ hookTrigger mvar = do
 
   state <- readMVar mvar
   time  <- timeCurrent
-  let (ClockStatus t c g st) = status time state
+  let (ClockStatus _ t c g st) = status time state
 
-  when (t == 0 && c == g && st == Work) $ exitImmediately ExitSuccess
+  when (t == 0 && c == g && st == Work) $ do
+    runScript "on-pomodoro-end.sh" 
+    exitImmediately ExitSuccess
+  
 
-  when (t == 0 && st == Work)  $ callCommand "~/.pomodoro/on-break-start.sh 2>/dev/null"
-  when (t == 0 && st == Break) $ callCommand "~/.pomodoro/on-work-start.sh  2>/dev/null"
+  when (t == 0 && st == Work)  $ runScript "on-break-start.sh" 
+  when (t == 0 && st == Break) $ runScript "on-work-start.sh"
 
   hookTrigger mvar
