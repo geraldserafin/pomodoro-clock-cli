@@ -16,7 +16,36 @@ Cli-based pomodoro clock with live events. Built in **Haskell** using unix socke
 
 ## Installation
 
-...
+### Nix
+
+The simplest way to try pomodoro-clock-cli is to use nix. <br />
+Assuming you have nix installed on your system and nix-commands enabled, you can start the clock by running:
+
+```
+nix run github:geraldserafin/pomodoro-clock-cli -- start
+```
+
+### NixOS
+
+#### With flakes
+
+You can add pomodoro-clock-cli as an input to your `flake.nix` file like so:
+
+```
+{
+    ...
+
+    inputs = {
+        ...
+        pomodoro-clock-cli.url = "github:geraldserafin/pomodoro-clock-cli";
+        pomodoro-clock-cli.inputs.nixpkgs.follows = "nixpkgs";
+    }
+
+    ...
+}
+```
+
+The package is outputed to `pomodoro-clock-cli.packages.<your-system>.default`
 
 ## Usage
 
@@ -48,7 +77,7 @@ That means when for example starting a session with 2 cycles, the only break wil
 
 ### Checking session status
 
-To check the status of the current session run: <br />
+To check the status of the current session run:
 
 ```
 $ pomodoro status
@@ -75,7 +104,7 @@ Available variables to use with the `status` command:
 
 ### Other commands
 
-Although it is not recommended, you can use the `toggle` command to pause and resume the clock:
+Although it's inconsistent with the pomodoro technique, you can use the `toggle` command to pause and resume the clock:
 
 ```
 $ pomodoro toggle
@@ -91,14 +120,14 @@ $ pomodoro stop
 
 Hooks are events that trigger when certain conditions are met.
 Currently, 3 different hooks are supported.
-For each of them, you can create a `.sh` script in the `~/pomodoro` folder, to be executed when the hook is triggered.
+For each of them, you can create a `.sh` script in the `~/.pomodoro` folder, to be executed when the hook is triggered.
 
 Supported hooks:
-| hook name | conditon to trigger |
+| hook name | condition to trigger |
 | --- | --- |
-| `on-work-start.sh` | clock chages state from break to work |
+| `on-work-start.sh` | clock changes state from break to work |
 | `on-break-start.sh` | clock changes state from work to break |
-| `on-pomodoro-end.sh` | session end (all cycles completed) |
+| `on-pomodoro-end.sh` | session ends (all cycles completed) |
 
 You can use hooks to send desktop notifications, play sounds, etc.:
 
