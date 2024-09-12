@@ -1,6 +1,6 @@
 # CLI Pomodoro Clock
 
-Cli-based, pomodoro clock with live events. Built in **Haskell** using unix sockets.
+Cli-based pomodoro clock with live events. Built in **Haskell** using unix sockets.
 
 ## Features
 

@@ -6,16 +6,20 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { nixpkgs, flake-utils, ... }@inputs:
+  outputs = { nixpkgs, flake-utils, ... }:
     flake-utils.lib.eachDefaultSystem (system:
-      let pkgs = nixpkgs.legacyPackages.${system};
-      in {
-        devShell = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            cabal-install
-            ghc
-            haskell-language-server
-          ];
+      let
+        pkgs = nixpkgs.legacyPackages.${system};
+        haskellPackages = pkgs.haskellPackages;
+
+        package = haskellPackages.developPackage {
+          root = ./.;
+          modifier = drv:
+            pkgs.haskell.lib.addBuildTools drv
+            (with haskellPackages; [ cabal-install ghcid ]);
         };
+      in {
+        packages.default = package;
+        devShells.default = package.env;
       });
 }
