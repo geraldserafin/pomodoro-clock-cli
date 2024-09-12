@@ -4,15 +4,13 @@ Cli-based pomodoro clock with live events. Built in **Haskell** using unix socke
 
 ## Features
 
+- [x] Running in the background without blocking the terminal
 - [x] Configurable times
-- [x] Status formatting
-- [x] Live hooks:
-  - on-work-start
-  - on-break-start
-  - on-pomodoro-end
+- [x] Configurable status message
+- [x] Live events for custom notifications, sounds, etc.
 - [ ] A config file for configuring the default session values
-- [ ] Presistent task history
-- [ ] Rofi plugin for easy access
+- [ ] Rofi plugin for interacting with the clock
+- [ ] Persistent task history
 
 ## Installation
 
@@ -29,7 +27,7 @@ nix run github:geraldserafin/pomodoro-clock-cli -- start
 
 #### With flakes
 
-You can add pomodoro-clock-cli as an input to your `flake.nix` file like so:
+You can add pomodoro-clock-cli as an input to your `flake.nix` file like so
 
 ```
 {
@@ -49,7 +47,7 @@ The package is outputed to `pomodoro-clock-cli.packages.<your-system>.default`
 
 ## Usage
 
-### Strating a pomodoro session
+### Starting a pomodoro session
 
 The simplest way to start a pomodoro session is to run:
 
