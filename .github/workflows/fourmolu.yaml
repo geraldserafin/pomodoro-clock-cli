@@ -1,0 +1,8 @@
+name: fourmolu
+on: push
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: haskell-actions/run-fourmolu@v9

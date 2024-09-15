@@ -15,8 +15,11 @@
         package = haskellPackages.developPackage {
           root = ./.;
           modifier = drv:
-            pkgs.haskell.lib.addBuildTools drv
-            (with haskellPackages; [ cabal-install ghcid ]);
+            pkgs.haskell.lib.addBuildTools drv (with haskellPackages; [
+              cabal-install
+              ghcid
+              haskell-language-server
+            ]);
         };
       in {
         packages.default = package;
