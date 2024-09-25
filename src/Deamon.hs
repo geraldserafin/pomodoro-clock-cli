@@ -1,78 +1,102 @@
+{-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
 module Deamon (start, sendMessage) where
 
-import qualified Data.ByteString.Char8 as BS
-import Commands ( ClockMessage(..), ClockSettings(ClockSettings) )
-import Network.Socket
-import Network.Socket.ByteString ( recv, sendAll )
-import System.Posix ( removeLink, exitImmediately, forkProcess )
-import Data.Aeson ( encode, decode )
-import Control.Exception ( SomeException, try, catch )
-import Control.Monad ( void )
-import Control.Concurrent ( newMVar, readMVar, MVar, modifyMVar_, threadDelay, forkIO )
-import System.Exit ( ExitCode (ExitSuccess) )
-import Data.Hourglass ( Elapsed (..) )
-import System.Hourglass ( timeCurrent )
-import Utils ( pairs, takeWhile_ )
+import Commands
+  ( ClockMessage (..)
+  , ClockSettings (..)
+  , Configuration (..)
+  , HooksSettings (..)
+  , StatusSettings (..)
+  )
+import Control.Concurrent
+  ( MVar
+  , forkIO
+  , modifyMVar_
+  , newMVar
+  , readMVar
+  , threadDelay
+  )
+import Control.Exception (SomeException, catch, try)
+import Control.Monad (void)
 import Control.Monad.Extra (when)
-import System.Process.Extra ( createProcess, proc, StdStream (NoStream), std_err )
+import Data.Aeson (decode, encode)
+import qualified Data.ByteString.Char8 as BS
+import Data.Hourglass (Elapsed (..))
 import Data.List.Extra (replace)
-import Text.Printf (printf)
 import Data.Maybe (fromMaybe)
-import System.Directory.Extra (getHomeDirectory)
+import Network.Socket
+import Network.Socket.ByteString (recv, sendAll)
+import System.Exit (ExitCode (ExitSuccess))
+import System.Hourglass (timeCurrent)
+import System.Posix (exitImmediately, forkProcess, removeLink)
+import System.Process.Extra (StdStream (NoStream), createProcess, proc, std_err)
+import Text.Printf (printf)
+import Utils (pairs, takeWhile_)
 
 type MessageHandler = Maybe ClockMessage -> IO (Maybe String)
-data State = State { _time :: [Elapsed], _settings :: ClockSettings }
-data ClockState = Work | Break deriving (Show, Eq)
+
+data State = State
+  { breaks :: [Elapsed]
+  , phaseTimes :: [Float]
+  , config :: Configuration
+  }
+
+data PomodoroPhase = Work | ShortBreak | LongBreak deriving (Show, Eq)
+
 data ClockStatus = ClockStatus
-  { title' :: Maybe String
-  , time    :: Int 
-  , _cycle   :: Int
-  , goal     :: Int
-  , _state   :: ClockState
-  } deriving (Show)
+  { title :: Maybe String
+  , timeRemainingInCurrentPhase :: Int
+  , cyclesCompleted :: Int
+  , cyclesGoal :: Int
+  , phase :: PomodoroPhase
+  }
+  deriving (Show)
 
-path :: String
-path = "/tmp/pomodoro_clock_cli.sock"
-
-start :: ClockSettings -> IO ()
-start s = void . forkProcess $ do
+start :: Configuration -> String -> IO ()
+start config path = void . forkProcess $ do
   removeLink path `catch` \(_ :: SomeException) -> return ()
 
   sock <- socket AF_UNIX Stream defaultProtocol
 
-  bind   sock (SockAddrUnix path)
+  bind sock (SockAddrUnix path)
   listen sock 5
 
-  time  <- timeCurrent
-  state <- newMVar $ State [time] s
+  time <- timeCurrent
+  state <-
+    newMVar $
+      State
+        [time]
+        (calculatePhaseTimes config.clockSettings)
+        config
 
-  void . forkIO $ hookTrigger state
+  void . forkIO $ triggerHook state
 
   handleConnections sock $ createHandler state
 
 handleConnections :: Socket -> MessageHandler -> IO ()
 handleConnections sock handler = do
   (conn, _) <- accept sock
-  msg       <- recv conn 1024
+  msg <- recv conn 1024
 
   let decodedMessage = decode (BS.fromStrict msg) :: Maybe ClockMessage
 
   res <- handler decodedMessage
-  _   <- sendAll conn $ BS.toStrict $ encode res
+  _ <- sendAll conn $ BS.toStrict $ encode res
 
   close conn
   handleConnections sock handler
 
-sendMessage :: ClockMessage -> IO (Maybe String)
-sendMessage m =  do
-  sock   <- socket AF_UNIX Stream defaultProtocol
+sendMessage :: ClockMessage -> String -> IO (Maybe String)
+sendMessage m path = do
+  sock <- socket AF_UNIX Stream defaultProtocol
   result <- try $ connect sock (SockAddrUnix path) :: IO (Either SomeException ())
 
   case result of
-    Left  _ -> return Nothing
+    Left _ -> return Nothing
     Right _ -> do
       sendAll sock . BS.toStrict $ encode m
       res <- recv sock 1024
@@ -80,62 +104,75 @@ sendMessage m =  do
       return $ decode $ BS.fromStrict res
 
 createHandler :: MVar State -> MessageHandler
-createHandler _    Nothing  = return Nothing
+createHandler _ Nothing = return Nothing
 createHandler mvar (Just m) = response m
   where
     response Terminate = exitImmediately ExitSuccess
-
     response Toggle = do
       time <- timeCurrent
-      modifyMVar_ mvar $ \state -> return state { _time = time : _time state }
+      modifyMVar_ mvar $ \state -> return state{breaks = time : state.breaks}
       return Nothing
-
-    response (Status fmt) = do
+    response (Status settings) = do
       state <- readMVar mvar
-      time  <- timeCurrent
-      return . Just . format fmt $ status time state
+      time <- timeCurrent
+      return . Just . formatStatus settings $ status time state
+
+calculatePhaseTimes :: ClockSettings -> [Float]
+calculatePhaseTimes cs =
+  scanl1 (+) . map (* 60) . cycle . concat $
+    replicate
+      (cs.longBreakFrequency - 1)
+      [cs.workTime, cs.shortBreakTime]
+      ++ [[cs.workTime, cs.longBreakTime]]
 
 status :: Elapsed -> State -> ClockStatus
-status ct (State st (ClockSettings title wt sbt lbt cs lbf)) =
-  let (Elapsed s)  = sum . map (abs . uncurry (-)) . pairs $ st <> [ct]
-      elapsed      = fromIntegral s :: Float
-      stages       = scanl1 (+) . map (*60) . cycle . concat $ replicate (lbf-1) [wt, sbt] ++ [[wt, lbt]]
-      completed    = takeWhile_ (<elapsed) stages
-      timeLeft     = last completed - elapsed
-      state        = if odd $ length completed then Work else Break
+status currentTime (State clockToggleTimes phaseTimes config) =
+  let settings = config.clockSettings
+      (Elapsed seconds) = sum . map (abs . uncurry (-)) . pairs $ clockToggleTimes <> [currentTime]
+      elapsedSeconds = fromIntegral seconds :: Float
+      completed = takeWhile_ (< elapsedSeconds) phaseTimes
+      timeLeft = round $ last completed - elapsedSeconds
       currentCycle = (1 + length completed) `div` 2
-  in ClockStatus title (round timeLeft) currentCycle cs state
+      phase
+        | odd . length $ completed = Work
+        | length completed `mod` settings.longBreakFrequency == 0 = LongBreak
+        | otherwise = ShortBreak
+  in  ClockStatus settings.title timeLeft currentCycle settings.cycles phase
 
-format :: String -> ClockStatus -> String
-format fmt (ClockStatus tt t c g st) = foldr (uncurry replace) fmt 
-  [ ("{time}" , uncurry (printf "%02d:%02d") $ t `divMod` 60)
-  , ("{state}", show st)
-  , ("{cycle}", show c )
-  , ("{goal}" , show g )
-  , ("{title}", fromMaybe "" tt)
-  ]
-
+formatStatus :: StatusSettings -> ClockStatus -> String
+formatStatus settings (ClockStatus tt t c g st) =
+  foldr
+    (uncurry replace)
+    settings.format
+    [ ("{time}", uncurry (printf "%02d:%02d") $ t `divMod` 60)
+    , ("{state}", showPhase st)
+    , ("{cycle}", show c)
+    , ("{goal}", show g)
+    , ("{title}", fromMaybe "" tt)
+    ]
+  where
+    showPhase Work = settings.workText
+    showPhase ShortBreak = settings.shortBreakText
+    showPhase LongBreak = settings.longBreakText
 
 runScript :: String -> IO ()
-runScript name = do
-  homeDir <- getHomeDirectory
-  void $ createProcess (proc "/bin/sh" [homeDir <> "/.pomodoro/" <> name]) { std_err = NoStream }
+runScript filePath = void $ createProcess (proc "/bin/sh" [filePath]){std_err = NoStream}
 
-
-hookTrigger :: MVar State -> IO ()
-hookTrigger mvar = do
+triggerHook :: MVar State -> IO ()
+triggerHook mvar = do
   threadDelay 1000000
 
   state <- readMVar mvar
-  time  <- timeCurrent
+  time <- timeCurrent
+
+  let hooksSettings = state.config.hooksSettings
   let (ClockStatus _ t c g st) = status time state
 
   when (t == 0 && c == g && st == Work) $ do
-    runScript "on-pomodoro-end.sh" 
+    mapM_ runScript hooksSettings.onPomodoroEnd
     exitImmediately ExitSuccess
-  
 
-  when (t == 0 && st == Work)  $ runScript "on-break-start.sh" 
-  when (t == 0 && st == Break) $ runScript "on-work-start.sh"
+  when (t == 0 && st == Work) $ mapM_ runScript hooksSettings.onBreakStart
+  when (t == 0 && st == ShortBreak) $ mapM_ runScript hooksSettings.onWorkStart
 
-  hookTrigger mvar
+  triggerHook mvar

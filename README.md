@@ -8,7 +8,7 @@ Cli-based pomodoro clock with live events. Built in **Haskell** using unix socke
 - [x] Configurable times
 - [x] Configurable status message
 - [x] Live events for custom notifications, sounds, etc.
-- [ ] A config file for configuring the default session values
+- [x] A config file for configuring the default session values
 - [ ] Rofi plugin for interacting with the clock
 - [ ] Persistent task history
 
@@ -114,27 +114,53 @@ To stop the session completely, use the `stop` command:
 $ pomodoro stop
 ```
 
+### Running multiple clocks
+
+All of the commands accept a `--socket` argument that lets you specify a path to the socket, enabling you to run multiple clocks at the same time.
+
 ## Hooks
 
 Hooks are events that trigger when certain conditions are met.
 Currently, 3 different hooks are supported.
-For each of them, you can create a `.sh` script in the `~/.pomodoro` folder, to be executed when the hook is triggered.
 
 Supported hooks:
 | hook name | condition to trigger |
 | --- | --- |
-| `on-work-start.sh` | clock changes state from break to work |
-| `on-break-start.sh` | clock changes state from work to break |
-| `on-pomodoro-end.sh` | session ends (all cycles completed) |
+| `on-work-start` | clock changes state from break to work |
+| `on-break-start` | clock changes state from work to break |
+| `on-pomodoro-end` | session ends (all cycles are completed) |
 
-You can use hooks to send desktop notifications, play sounds, etc.:
+You can set a script to run when a hook is triggered by providing a path to the script in a file located in `~/.config/pomodoro/config.yaml`.
 
-```sh
-# on-work-start.sh
+```yaml
+# ~/.config/pomodoro/config.yaml
 
-# send a desktop notification
-notify-send "Pomodoro Clock" "Time to get back to work!"
+hooksSettings:
+  onBreakStart: "/path/to/on-break-start.sh"
+  onWorkStart: "/path/to/on-work-start.sh"
+  onPomodoroEnd: "/path/to/on-pomodoro-end.sh"
+```
 
-# play a sound
-paplay work-start-sound.wav
+## Configuration File
+
+The config file also enables you to also override the default settings.
+
+```yaml
+# ~/.config/pomodoro/config.yaml
+
+clockSettings:
+  title: "Focusing"
+  workTime: 25
+  shortBreakTime: 5
+  longBreakTime: 15
+  cycles: 2
+  longBreakFrequency: 4
+
+statusSettings:
+  format: "{title} {time} ({state}), {cycle}/{goal}"
+  workText: "Work"
+  shortBreakText: "Short Break"
+  longBreakText: "Long Break"
+
+socketPath: "/tmp/pomodoro.sock"
 ```

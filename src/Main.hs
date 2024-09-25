@@ -3,9 +3,8 @@ import qualified Deamon
 
 main :: IO ()
 main = do
-  cmd <- parseCommand
+  Interaction cmd path <- parseCommand
 
   case cmd of
-    Start   s -> Deamon.sendMessage Terminate >> Deamon.start s
-    Message m -> Deamon.sendMessage m >>= mapM_ putStrLn
-
+    Message m -> Deamon.sendMessage m path >>= mapM_ putStrLn
+    Start c -> Deamon.sendMessage Terminate path >> Deamon.start c path
