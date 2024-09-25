@@ -23,6 +23,9 @@
         };
       in {
         packages.default = package;
-        devShells.default = package.env;
+        devShells.default = pkgs.mkShell {
+          name = "pomodoro-clock";
+          inputsFrom = [ package.env ];
+        };
       });
 }
